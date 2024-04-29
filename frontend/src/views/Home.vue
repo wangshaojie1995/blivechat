@@ -1,17 +1,60 @@
 <template>
   <div>
     <p>
-      <el-form :model="form" ref="form" label-width="150px" :rules="{
-        roomId: [
-          {required: true, message: $t('home.roomIdEmpty'), trigger: 'blur'},
-          {type: 'integer', min: 1, message: $t('home.roomIdInteger'), trigger: 'blur'}
-        ]
-      }">
+      <el-form :model="form" ref="form" label-width="150px">
         <el-tabs type="border-card">
           <el-tab-pane :label="$t('home.general')">
-            <el-form-item :label="$t('home.roomId')" required prop="roomId">
-              <el-input v-model.number="form.roomId" type="number" min="1"></el-input>
+            <template v-if="form.roomKeyType === 1">
+              <p>
+                <el-alert :title="$t('home.useAuthCodeWarning')" type="warning" show-icon :closable="false"></el-alert>
+              </p>
+              <el-form-item
+                :label="$t('home.room')" prop="roomId" :rules="[
+                  { required: true, message: $t('home.roomIdEmpty') },
+                  { type: 'integer', min: 1, message: $t('home.roomIdInteger') }
+                ]"
+              >
+                <el-row>
+                  <el-col :span="6">
+                    <el-select v-model="form.roomKeyType" style="width: 100%">
+                      <el-option :label="$t('home.authCode')" :value="2"></el-option>
+                      <el-option :label="$t('home.roomId')" :value="1"></el-option>
+                    </el-select>
+                  </el-col>
+                  <el-col :span="18">
+                    <el-input v-model.number="form.roomId" type="number" min="1"></el-input>
+                  </el-col>
+                </el-row>
+              </el-form-item>
+            </template>
+
+            <el-form-item v-else-if="form.roomKeyType === 2"
+              :label="$t('home.room')" prop="authCode" :rules="[
+                { required: true, message: $t('home.authCodeEmpty') },
+                { pattern: /^[0-9A-Z]{12,14}$/, message: $t('home.authCodeFormatError') }
+              ]"
+            >
+              <el-row>
+                <el-col :span="6">
+                  <el-select v-model="form.roomKeyType" style="width: 100%">
+                    <el-option :label="$t('home.authCode')" :value="2"></el-option>
+                    <el-option :label="$t('home.roomId')" :value="1"></el-option>
+                  </el-select>
+                </el-col>
+                <el-col :span="18">
+                  <el-tooltip placement="top-start">
+                    <div slot="content">
+                      <!-- 不知道为什么router-link获取不到$router，还是用el-link了，不过会有一次丑陋的刷新 -->
+                      <el-link
+                        type="primary" :href="$router.resolve({ name: 'help' }).href"
+                      >{{ $t('home.howToGetAuthCode') }}</el-link>
+                    </div>
+                    <el-input v-model.number="form.authCode"></el-input>
+                  </el-tooltip>
+                </el-col>
+              </el-row>
             </el-form-item>
+
             <el-row :gutter="20">
               <el-col :xs="24" :sm="8">
                 <el-form-item :label="$t('home.showDanmaku')">
@@ -63,21 +106,27 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('home.informalUser')">
-                  <el-switch v-model="form.blockNewbie"></el-switch>
-                </el-form-item>
+                <el-tooltip :content="$t('home.unavailableWhenUsingAuthCode')">
+                  <el-form-item :label="$t('home.informalUser')">
+                    <el-switch v-model="form.blockNewbie"></el-switch>
+                  </el-form-item>
+                </el-tooltip>
               </el-col>
               <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('home.unverifiedUser')">
-                  <el-switch v-model="form.blockNotMobileVerified"></el-switch>
-                </el-form-item>
+                <el-tooltip :content="$t('home.unavailableWhenUsingAuthCode')">
+                  <el-form-item :label="$t('home.unverifiedUser')">
+                    <el-switch v-model="form.blockNotMobileVerified"></el-switch>
+                  </el-form-item>
+                </el-tooltip>
               </el-col>
             </el-row>
             <el-row :gutter="20">
               <el-col :xs="24" :sm="12">
-                <el-form-item :label="$t('home.blockLevel')">
-                  <el-slider v-model="form.blockLevel" show-input :min="0" :max="60"></el-slider>
-                </el-form-item>
+                <el-tooltip :content="$t('home.unavailableWhenUsingAuthCode')">
+                  <el-form-item :label="$t('home.blockLevel')">
+                    <el-slider v-model="form.blockLevel" show-input :min="0" :max="60"></el-slider>
+                  </el-form-item>
+                </el-tooltip>
               </el-col>
               <el-col :xs="24" :sm="12">
                 <el-form-item :label="$t('home.blockMedalLevel')">
@@ -94,16 +143,33 @@
           </el-tab-pane>
 
           <el-tab-pane :label="$t('home.advanced')">
+            <el-row>
+              <el-col :xs="24" :sm="8">
+                <el-tooltip :content="$t('home.showDebugMessagesTip')">
+                  <el-form-item :label="$t('home.showDebugMessages')">
+                    <el-switch v-model="form.showDebugMessages"></el-switch>
+                  </el-form-item>
+                </el-tooltip>
+              </el-col>
+            </el-row>
             <el-row :gutter="20">
               <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('home.relayMessagesByServer')">
-                  <el-switch v-model="form.relayMessagesByServer"></el-switch>
-                </el-form-item>
+                <el-tooltip :content="$t('home.relayMessagesByServerTip')">
+                  <el-form-item :label="$t('home.relayMessagesByServer')">
+                    <el-switch v-model="form.relayMessagesByServer"></el-switch>
+                  </el-form-item>
+                </el-tooltip>
               </el-col>
               <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('home.autoTranslate')">
-                  <el-switch v-model="form.autoTranslate" :disabled="!serverConfig.enableTranslate || !form.relayMessagesByServer"></el-switch>
-                </el-form-item>
+                <el-tooltip :content="$t('home.requiresRelayMessagesByServer')">
+                  <el-form-item :label="$t('home.autoTranslate')">
+                    <el-tooltip :content="$t('home.disabledByServer')" placement="top" :disabled="serverConfig.enableTranslate">
+                      <el-switch v-model="form.autoTranslate"
+                        :disabled="!serverConfig.enableTranslate || !form.relayMessagesByServer"
+                      ></el-switch>
+                    </el-tooltip>
+                  </el-form-item>
+                </el-tooltip>
               </el-col>
             </el-row>
             <el-form-item :label="$t('home.giftUsernamePronunciation')">
@@ -113,6 +179,15 @@
                 <el-radio label="kana">{{$t('home.kana')}}</el-radio>
               </el-radio-group>
             </el-form-item>
+            <el-row>
+              <el-col :xs="24" :sm="8">
+                <el-tooltip :content="$t('home.importPresetCssTip')">
+                  <el-form-item :label="$t('home.importPresetCss')">
+                    <el-switch v-model="form.importPresetCss"></el-switch>
+                  </el-form-item>
+                </el-tooltip>
+              </el-col>
+            </el-row>
           </el-tab-pane>
 
           <el-tab-pane :label="$t('home.emoticon')">
@@ -149,13 +224,18 @@
     <p>
       <el-card>
         <el-form :model="form" label-width="150px">
-          <el-form-item :label="$t('home.roomUrl')">
-            <el-input ref="roomUrlInput" readonly :value="obsRoomUrl" style="width: calc(100% - 8em); margin-right: 1em;"></el-input>
-            <el-button type="primary" icon="el-icon-copy-document" @click="copyUrl"></el-button>
-          </el-form-item>
+          <p v-if="obsRoomUrl.length > 1024">
+            <el-alert :title="$t('home.urlTooLong')" type="warning" show-icon :closable="false"></el-alert>
+          </p>
+          <el-tooltip :content="$t('home.roomUrlUpdated')" v-model="showRoomUrlUpdatedTip" manual placement="top">
+            <el-form-item :label="$t('home.roomUrl')">
+              <el-input ref="roomUrlInput" readonly :value="obsRoomUrl" style="width: calc(100% - 8em); margin-right: 1em;"></el-input>
+              <el-button type="primary" icon="el-icon-copy-document" @click="copyUrl"></el-button>
+            </el-form-item>
+          </el-tooltip>
           <el-form-item>
             <el-button type="primary" :disabled="!roomUrl" @click="enterRoom">{{$t('home.enterRoom')}}</el-button>
-            <el-button @click="enterTestRoom">{{$t('home.enterTestRoom')}}</el-button>
+            <el-button @click="copyTestRoomUrl">{{$t('home.copyTestRoomUrl')}}</el-button>
             <el-button @click="exportConfig">{{$t('home.exportConfig')}}</el-button>
             <el-button @click="importConfig">{{$t('home.importConfig')}}</el-button>
           </el-form-item>
@@ -184,13 +264,26 @@ export default {
       },
       form: {
         ...chatConfig.getLocalConfig(),
-        roomId: parseInt(window.localStorage.roomId || '1')
-      }
+        roomKeyType: parseInt(window.localStorage.roomKeyType || '2'),
+        roomId: parseInt(window.localStorage.roomId || '1'),
+        authCode: window.localStorage.authCode || '',
+      },
+      // 因为$refs.form.validate是异步的所以不能直接用计算属性
+      // getUnvalidatedRoomUrl -> unvalidatedRoomUrl -> updateRoomUrl -> roomUrl
+      roomUrl: '',
+      showRoomUrlUpdatedTip: false,
     }
   },
   computed: {
-    roomUrl() {
-      return this.getRoomUrl(false)
+    roomKeyValue() {
+      if (this.form.roomKeyType === 1) {
+        return this.form.roomId
+      } else {
+        return this.form.authCode
+      }
+    },
+    unvalidatedRoomUrl() {
+      return this.getUnvalidatedRoomUrl(false)
     },
     obsRoomUrl() {
       if (this.roomUrl === '') {
@@ -205,13 +298,25 @@ export default {
     }
   },
   watch: {
-    roomUrl: _.debounce(function() {
+    unvalidatedRoomUrl: 'updateRoomUrl',
+    roomUrl: _.debounce(function(val, oldVal) {
+      // 提示用户URL已更新
+      // 如果语言不是默认的中文，则刷新页面时也会有一次提示，没办法
+      if (val !== '' && oldVal !== '') {
+        this.showRoomUrlUpdatedTip = true
+        this.delayHideRoomUrlUpdatedTip()
+      }
+
+      // 保存配置
+      window.localStorage.roomKeyType = this.form.roomKeyType
       window.localStorage.roomId = this.form.roomId
+      window.localStorage.authCode = this.form.authCode
       chatConfig.setLocalConfig(this.form)
     }, 500)
   },
   mounted() {
     this.updateServerConfig()
+    this.updateRoomUrl()
   },
   methods: {
     async updateServerConfig() {
@@ -222,6 +327,21 @@ export default {
         throw e
       }
     },
+    async updateRoomUrl() {
+      // 防止切换roomKeyType时校验的还是老规则
+      await this.$nextTick()
+      try {
+        await this.$refs.form.validate()
+      } catch {
+        this.roomUrl = ''
+        return
+      }
+      // 没有异步的校验规则，应该不需要考虑竞争条件
+      this.roomUrl = this.unvalidatedRoomUrl
+    },
+    delayHideRoomUrlUpdatedTip: _.debounce(function() {
+      this.showRoomUrlUpdatedTip = false
+    }, 3000),
 
     addEmoticon() {
       this.form.emoticons.push({
@@ -256,28 +376,48 @@ export default {
     },
 
     enterRoom() {
-      window.open(this.roomUrl, `room ${this.form.roomId}`, 'menubar=0,location=0,scrollbars=0,toolbar=0,width=600,height=600')
+      window.open(this.roomUrl, `room ${this.roomKeyValue}`, 'menubar=0,location=0,scrollbars=0,toolbar=0,width=600,height=600')
     },
-    enterTestRoom() {
-      window.open(this.getRoomUrl(true), 'test room', 'menubar=0,location=0,scrollbars=0,toolbar=0,width=600,height=600')
+    copyTestRoomUrl() {
+      window.navigator.clipboard.writeText(this.getUnvalidatedRoomUrl(true))
     },
-    getRoomUrl(isTestRoom) {
-      if (!isTestRoom && this.form.roomId === '') {
-        return ''
+    getUnvalidatedRoomUrl(isTestRoom) {
+      // 重要的字段放在前面，因为如果被截断就连接不了房间了
+      let frontFields = {
+        roomKeyType: this.form.roomKeyType
       }
+      let backFields = {
+        lang: this.$i18n.locale,
+        emoticons: JSON.stringify(this.form.emoticons)
+      }
+      let ignoredNames = new Set(['roomId', 'authCode'])
+      let query = { ...frontFields }
+      for (let name in this.form) {
+        if (!(name in frontFields || name in backFields || ignoredNames.has(name))) {
+          query[name] = this.form[name]
+        }
+      }
+      Object.assign(query, backFields)
 
-      let query = {
-        ...this.form,
-        emoticons: JSON.stringify(this.form.emoticons),
-        lang: this.$i18n.locale
-      }
-      delete query.roomId
+      // 去掉和默认值相同的字段，缩短URL长度
+      query = Object.fromEntries(Object.entries(query).filter(
+        ([name, value]) => {
+          let defaultValue = chatConfig.DEFAULT_CONFIG[name]
+          if (defaultValue === undefined) {
+            return true
+          }
+          if (typeof defaultValue === 'object') {
+            defaultValue = JSON.stringify(defaultValue)
+          }
+          return value !== defaultValue
+        }
+      ))
 
       let resolved
       if (isTestRoom) {
         resolved = this.$router.resolve({ name: 'test_room', query })
       } else {
-        resolved = this.$router.resolve({ name: 'room', params: { roomId: this.form.roomId }, query })
+        resolved = this.$router.resolve({ name: 'room', params: { roomKeyValue: this.roomKeyValue }, query })
       }
       return `${window.location.protocol}//${window.location.host}${resolved.href}`
     },
@@ -285,6 +425,7 @@ export default {
       this.$refs.roomUrlInput.select()
       document.execCommand('Copy')
     },
+
     exportConfig() {
       let cfg = mergeConfig(this.form, chatConfig.DEFAULT_CONFIG)
       download(JSON.stringify(cfg, null, 2), 'blivechat.json', 'application/json')
@@ -314,7 +455,9 @@ export default {
       chatConfig.sanitizeConfig(cfg)
       this.form = {
         ...cfg,
-        roomId: this.form.roomId
+        roomKeyType: this.form.roomKeyType,
+        roomId: this.form.roomId,
+        authCode: this.form.authCode
       }
     }
   }

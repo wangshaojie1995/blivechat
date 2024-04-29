@@ -18,15 +18,19 @@ CONFIG_PATH_LIST = [
 _config: Optional['AppConfig'] = None
 
 
-def init():
-    if reload():
+def init(cmd_args):
+    if reload(cmd_args):
         return
     logger.warning('Using default config')
+
+    config = AppConfig()
+    config.load_cmd_args(cmd_args)
+
     global _config
-    _config = AppConfig()
+    _config = config
 
 
-def reload():
+def reload(cmd_args):
     config_path = ''
     for path in CONFIG_PATH_LIST:
         if os.path.exists(path):
@@ -38,6 +42,8 @@ def reload():
     config = AppConfig()
     if not config.load(config_path):
         return False
+    config.load_cmd_args(cmd_args)
+
     global _config
     _config = config
     return True
@@ -49,19 +55,43 @@ def get_config():
 
 class AppConfig:
     def __init__(self):
+        self.debug = False
+        self.host = '127.0.0.1'
+        self.port = 12450
         self.database_url = 'sqlite:///data/database.db'
         self.tornado_xheaders = False
         self.loader_url = ''
+        self.open_browser_at_startup = True
         self.enable_upload_file = True
+        self.enable_admin_plugins = True
 
-        self.fetch_avatar_interval = 3.5
-        self.fetch_avatar_max_queue_size = 2
-        self.avatar_cache_size = 50000
+        self.fetch_avatar_max_queue_size = 4
+        self.avatar_cache_size = 10000
+
+        self.open_live_access_key_id = ''
+        self.open_live_access_key_secret = ''
+        self.open_live_app_id = 0
 
         self.enable_translate = True
         self.allow_translate_rooms = set()
+        self.translate_max_queue_size = 10
         self.translation_cache_size = 50000
         self.translator_configs = []
+
+        self.text_emoticons = []
+
+    @property
+    def is_open_live_configured(self):
+        return (
+            self.open_live_access_key_id != '' and self.open_live_access_key_secret != '' and self.open_live_app_id != 0
+        )
+
+    def load_cmd_args(self, args):
+        if args.host is not None:
+            self.host = args.host
+        if args.port is not None:
+            self.port = args.port
+        self.debug = args.debug
 
     def load(self, path):
         try:
@@ -70,6 +100,7 @@ class AppConfig:
 
             self._load_app_config(config)
             self._load_translator_configs(config)
+            self._load_text_emoticons(config)
         except Exception:  # noqa
             logger.exception('Failed to load config:')
             return False
@@ -77,18 +108,29 @@ class AppConfig:
 
     def _load_app_config(self, config: configparser.ConfigParser):
         app_section = config['app']
+        self.host = app_section.get('host', self.host)
+        self.port = app_section.getint('port', self.port)
         self.database_url = app_section.get('database_url', self.database_url)
-        self.tornado_xheaders = app_section.getboolean('tornado_xheaders', fallback=self.tornado_xheaders)
+        self.tornado_xheaders = app_section.getboolean('tornado_xheaders', self.tornado_xheaders)
         self.loader_url = app_section.get('loader_url', self.loader_url)
-        self.enable_upload_file = app_section.getboolean('enable_upload_file', fallback=self.enable_upload_file)
+        self.open_browser_at_startup = app_section.getboolean('open_browser_at_startup', self.open_browser_at_startup)
+        self.enable_upload_file = app_section.getboolean('enable_upload_file', self.enable_upload_file)
+        self.enable_admin_plugins = app_section.getboolean('enable_admin_plugins', self.enable_admin_plugins)
 
-        self.fetch_avatar_interval = app_section.getfloat('fetch_avatar_interval', fallback=self.fetch_avatar_interval)
-        self.fetch_avatar_max_queue_size = app_section.getint('fetch_avatar_max_queue_size',
-                                                              fallback=self.fetch_avatar_max_queue_size)
-        self.avatar_cache_size = app_section.getint('avatar_cache_size', fallback=self.avatar_cache_size)
+        self.fetch_avatar_max_queue_size = app_section.getint(
+            'fetch_avatar_max_queue_size', self.fetch_avatar_max_queue_size
+        )
+        self.avatar_cache_size = app_section.getint('avatar_cache_size', self.avatar_cache_size)
 
-        self.enable_translate = app_section.getboolean('enable_translate', fallback=self.enable_translate)
+        self.open_live_access_key_id = app_section.get('open_live_access_key_id', self.open_live_access_key_id)
+        self.open_live_access_key_secret = app_section.get(
+            'open_live_access_key_secret', self.open_live_access_key_secret
+        )
+        self.open_live_app_id = app_section.getint('open_live_app_id', self.open_live_app_id)
+
+        self.enable_translate = app_section.getboolean('enable_translate', self.enable_translate)
         self.allow_translate_rooms = _str_to_list(app_section.get('allow_translate_rooms', ''), int, set)
+        self.translate_max_queue_size = app_section.getint('translate_max_queue_size', self.translate_max_queue_size)
         self.translation_cache_size = app_section.getint('translation_cache_size', self.translation_cache_size)
 
     def _load_translator_configs(self, config: configparser.ConfigParser):
@@ -103,7 +145,6 @@ class AppConfig:
                 translator_config = {
                     'type': type_,
                     'query_interval': section.getfloat('query_interval'),
-                    'max_queue_size': section.getint('max_queue_size')
                 }
                 if type_ == 'TencentTranslateFree':
                     translator_config['source_language'] = section['source_language']
@@ -121,6 +162,12 @@ class AppConfig:
                     translator_config['target_language'] = section['target_language']
                     translator_config['app_id'] = section['app_id']
                     translator_config['secret'] = section['secret']
+                elif type_ == 'GeminiTranslate':
+                    translator_config['proxy'] = section['proxy']
+                    translator_config['api_key'] = section['api_key']
+                    translator_config['model_code'] = section['model_code']
+                    translator_config['prompt'] = section['prompt'].replace('\n', ' ').replace('\\n', '\n')
+                    translator_config['temperature'] = section.getfloat('temperature')
                 else:
                     raise ValueError(f'Invalid translator type: {type_}')
             except Exception:  # noqa
@@ -129,6 +176,14 @@ class AppConfig:
 
             translator_configs.append(translator_config)
         self.translator_configs = translator_configs
+
+    def _load_text_emoticons(self, config: configparser.ConfigParser):
+        mappings_section = config['text_emoticon_mappings']
+        text_emoticons = []
+        for value in mappings_section.values():
+            keyword, _, url = value.partition(',')
+            text_emoticons.append({'keyword': keyword, 'url': url})
+        self.text_emoticons = text_emoticons
 
 
 def _str_to_list(value, item_type: Type = str, container_type: Type = list):

@@ -1,43 +1,84 @@
-import { getUuid4Hex } from '@/utils'
 import * as constants from '@/components/ChatRenderer/constants'
-import * as avatar from './avatar'
+import * as chat from '.'
+import * as chatModels from './models'
 
 const NAMES = [
-  'xfgryujk', 'Simon', 'Il Harper', 'Kinori', 'shugen', 'yuyuyzl', '3Shain', '光羊', '黑炎', 'Misty', '孤梦星影',
-  'ジョナサン・ジョースター', 'ジョセフ・ジョースター', 'ディオ・ブランドー', '空條承太郎', '博丽灵梦', '雾雨魔理沙',
-  'Rick Astley'
+  '光羊',
+  '黑炎',
+  '孤梦星影',
+  '博丽灵梦',
+  '雾雨魔理沙',
+  '空條承太郎',
+  'ディオ・ブランドー',
+  'ジョセフ・ジョースター',
+  'ジョナサン・ジョースター',
+  'Simon',
+  'Misty',
+  'Kinori',
+  'shugen',
+  '3Shain',
+  'yuyuyzl',
+  'xfgryujk',
+  'Il Harper',
+  'Rick Astley',
 ]
 
 const CONTENTS = [
-  '草', 'kksk', '8888888888', '888888888888888888888888888888', '老板大气，老板身体健康',
-  'The quick brown fox jumps over the lazy dog', "I can eat glass, it doesn't hurt me",
-  '我不做人了，JOJO', '無駄無駄無駄無駄無駄無駄無駄無駄', '欧啦欧啦欧啦欧啦欧啦欧啦欧啦欧啦', '逃げるんだよォ！',
-  '嚯，朝我走过来了吗，没有选择逃跑而是主动接近我么', '不要停下来啊', '已经没有什么好怕的了',
-  'I am the bone of my sword. Steel is my body, and fire is my blood.', '言いたいことがあるんだよ！',
-  '我忘不掉夏小姐了。如果不是知道了夏小姐，说不定我已经对这个世界没有留恋了', '迷えば、敗れる',
-  'Farewell, ashen one. May the flame guide thee', '竜神の剣を喰らえ！', '竜が我が敌を喰らう！',
-  '有一说一，这件事大家懂的都懂，不懂的，说了你也不明白，不如不说', '让我看看', '我柜子动了，我不玩了'
+  '草',
+  '让我看看',
+  '不要停下来啊',
+  '我不做人了，JOJO',
+  '已经没有什么好怕的了',
+  '我柜子动了，我不玩了',
+  '老板大气，老板身体健康',
+  '我醉提酒游寒山，爽滑慢舔',
+  '[dog]文本[比心]表情[喝彩]',
+  '無駄無駄無駄無駄無駄無駄無駄無駄',
+  '欧啦欧啦欧啦欧啦欧啦欧啦欧啦欧啦',
+  '所有没好全部康复呀，我的癌也全部康复呀',
+  '嚯，朝我走过来了吗，没有选择逃跑而是主动接近我么',
+  '有一说一，这件事大家懂的都懂，不懂的，说了你也不明白，不如不说',
+  '如来来了吗？如来嘛~他真来了吗？如~来~到底来没来？如来~如来他真来了吗？如来~你看看，来没来？如~来~',
+  '迷えば、敗れる',
+  '逃げるんだよォ！',
+  '竜神の剣を喰らえ！',
+  '竜が我が敌を喰らう！',
+  '言いたいことがあるんだよ！',
+  '知らず知らず隠してた 本当の声を響かせてよほら',
+  'kksk',
+  '8888888888',
+  'text[吃瓜]emoticon',
+  'Never gonna give you up',
+  'Never gonna let you down',
+  '888888888888888888888888888888',
+  'I am the storm that is approaching',
+  "I can eat glass, it doesn't hurt me",
+  'The quick brown fox jumps over the lazy dog',
+  'Farewell, ashen one. May the flame guide thee',
+  'I am the bone of my sword. Steel is my body, and fire is my blood.',
 ]
 
 const EMOTICONS = [
-  '/static/img/emoticons/233.png',
-  '/static/img/emoticons/miaoa.png',
-  '/static/img/emoticons/lipu.png'
-]
+  '233',
+  'miaoa',
+  'lipu',
+  'huangdou_xihuan',
+  'sakaban_jiayu_yutou',
+].map(name => `/static/img/emoticons/${name}.png`)
 
 const AUTHOR_TYPES = [
-  { weight: 10, value: constants.AUTHRO_TYPE_NORMAL },
-  { weight: 5, value: constants.AUTHRO_TYPE_MEMBER },
-  { weight: 2, value: constants.AUTHRO_TYPE_ADMIN },
-  { weight: 1, value: constants.AUTHRO_TYPE_OWNER }
+  { weight: 10, value: constants.AUTHOR_TYPE_NORMAL },
+  { weight: 5, value: constants.AUTHOR_TYPE_MEMBER },
+  { weight: 2, value: constants.AUTHOR_TYPE_ADMIN },
+  { weight: 1, value: constants.AUTHOR_TYPE_OWNER }
 ]
 
 function randGuardInfo() {
   let authorType = randomChoose(AUTHOR_TYPES)
   let privilegeType
-  if (authorType === constants.AUTHRO_TYPE_MEMBER) {
+  if (authorType === constants.AUTHOR_TYPE_MEMBER) {
     privilegeType = randInt(1, 3)
-  } else if (authorType === constants.AUTHRO_TYPE_ADMIN) {
+  } else if (authorType === constants.AUTHOR_TYPE_ADMIN) {
     privilegeType = randInt(0, 3)
   } else {
     privilegeType = 0
@@ -46,6 +87,7 @@ function randGuardInfo() {
 }
 
 const GIFT_INFO_LIST = [
+  { giftName: '辣条', totalFreeCoin: 1000, num: 10 },
   { giftName: 'B坷垃', totalCoin: 9900 },
   { giftName: '礼花', totalCoin: 28000 },
   { giftName: '花式夸夸', totalCoin: 39000 },
@@ -65,21 +107,16 @@ const MESSAGE_GENERATORS = [
     value() {
       return {
         type: constants.MESSAGE_TYPE_TEXT,
-        message: {
+        message: new chatModels.AddTextMsg({
           ...randGuardInfo(),
-          avatarUrl: avatar.DEFAULT_AVATAR_URL,
-          timestamp: new Date().getTime() / 1000,
           authorName: randomChoose(NAMES),
           content: randomChoose(CONTENTS),
           isGiftDanmaku: randInt(1, 10) <= 1,
-          authorLevel: randInt(0, 60),
+          authorLevel: randInt(1, 60),
           isNewbie: randInt(1, 10) <= 1,
           isMobileVerified: randInt(1, 10) <= 9,
           medalLevel: randInt(0, 40),
-          id: getUuid4Hex(),
-          translation: '',
-          emoticon: null
-        }
+        })
       }
     }
   },
@@ -89,21 +126,15 @@ const MESSAGE_GENERATORS = [
     value() {
       return {
         type: constants.MESSAGE_TYPE_TEXT,
-        message: {
+        message: new chatModels.AddTextMsg({
           ...randGuardInfo(),
-          avatarUrl: avatar.DEFAULT_AVATAR_URL,
-          timestamp: new Date().getTime() / 1000,
           authorName: randomChoose(NAMES),
-          content: '',
-          isGiftDanmaku: false,
-          authorLevel: randInt(0, 60),
+          authorLevel: randInt(1, 60),
           isNewbie: randInt(1, 10) <= 1,
           isMobileVerified: randInt(1, 10) <= 9,
           medalLevel: randInt(0, 40),
-          id: getUuid4Hex(),
-          translation: '',
-          emoticon: randomChoose(EMOTICONS)
-        }
+          emoticon: randomChoose(EMOTICONS),
+        })
       }
     }
   },
@@ -113,14 +144,10 @@ const MESSAGE_GENERATORS = [
     value() {
       return {
         type: constants.MESSAGE_TYPE_GIFT,
-        message: {
+        message: new chatModels.AddGiftMsg({
           ...randomChoose(GIFT_INFO_LIST),
-          id: getUuid4Hex(),
-          avatarUrl: avatar.DEFAULT_AVATAR_URL,
-          timestamp: new Date().getTime() / 1000,
           authorName: randomChoose(NAMES),
-          num: 1
-        }
+        })
       }
     }
   },
@@ -130,15 +157,11 @@ const MESSAGE_GENERATORS = [
     value() {
       return {
         type: constants.MESSAGE_TYPE_SUPER_CHAT,
-        message: {
-          id: getUuid4Hex(),
-          avatarUrl: avatar.DEFAULT_AVATAR_URL,
-          timestamp: new Date().getTime() / 1000,
+        message: new chatModels.AddSuperChatMsg({
           authorName: randomChoose(NAMES),
           price: randomChoose(SC_PRICES),
           content: randomChoose(CONTENTS),
-          translation: ''
-        }
+        })
       }
     }
   },
@@ -148,13 +171,10 @@ const MESSAGE_GENERATORS = [
     value() {
       return {
         type: constants.MESSAGE_TYPE_MEMBER,
-        message: {
-          id: getUuid4Hex(),
-          avatarUrl: avatar.DEFAULT_AVATAR_URL,
-          timestamp: new Date().getTime() / 1000,
+        message: new chatModels.AddMemberMsg({
           authorName: randomChoose(NAMES),
           privilegeType: randInt(1, 3)
-        }
+        })
       }
     }
   }
@@ -194,15 +214,7 @@ function randInt(min, max) {
 
 export default class ChatClientTest {
   constructor() {
-    this.minSleepTime = 800
-    this.maxSleepTime = 1200
-
-    this.onAddText = null
-    this.onAddGift = null
-    this.onAddMember = null
-    this.onAddSuperChat = null
-    this.onDelSuperChat = null
-    this.onUpdateTranslation = null
+    this.msgHandler = chat.getDefaultMsgHandler()
 
     this.timerId = null
   }
@@ -219,7 +231,17 @@ export default class ChatClientTest {
   }
 
   refreshTimer() {
-    this.timerId = window.setTimeout(this.onTimeout.bind(this), randInt(this.minSleepTime, this.maxSleepTime))
+    // 模仿B站的消息间隔模式
+    let sleepTime
+    if (randInt(0, 4) == 0) {
+      sleepTime = randInt(1000, 2000)
+    } else {
+      sleepTime = randInt(0, 400)
+    }
+    if (this.timerId) {
+      window.clearTimeout(this.timerId)
+    }
+    this.timerId = window.setTimeout(this.onTimeout.bind(this), sleepTime)
   }
 
   onTimeout() {
@@ -228,16 +250,16 @@ export default class ChatClientTest {
     let { type, message } = randomChoose(MESSAGE_GENERATORS)()
     switch (type) {
     case constants.MESSAGE_TYPE_TEXT:
-      this.onAddText(message)
+      this.msgHandler.onAddText(message)
       break
     case constants.MESSAGE_TYPE_GIFT:
-      this.onAddGift(message)
+      this.msgHandler.onAddGift(message)
       break
     case constants.MESSAGE_TYPE_MEMBER:
-      this.onAddMember(message)
+      this.msgHandler.onAddMember(message)
       break
     case constants.MESSAGE_TYPE_SUPER_CHAT:
-      this.onAddSuperChat(message)
+      this.msgHandler.onAddSuperChat(message)
       break
     }
   }

@@ -3,13 +3,14 @@ import asyncio
 
 import aiohttp
 
+import utils.async_io
 import utils.request
 
-VERSION = 'v1.6.1'
+VERSION = 'v1.9.1'
 
 
 def check_update():
-    asyncio.ensure_future(_do_check_update())
+    utils.async_io.create_task_with_ref(_do_check_update())
 
 
 async def _do_check_update():

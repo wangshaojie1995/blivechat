@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:12450'
+// 不能用localhost，https://forum.dfinity.org/t/development-workflow-quickly-test-code-modifications/1793/21
+const API_BASE_URL = 'http://127.0.0.1:12450'
 
 module.exports = {
   devServer: {
@@ -9,7 +10,10 @@ module.exports = {
       },
       '/emoticons': {
         target: API_BASE_URL
-      }
+      },
+      '/custom_public': {
+        target: API_BASE_URL
+      },
     }
   },
   chainWebpack: config => {
@@ -22,5 +26,14 @@ module.exports = {
         env['APP_VERSION'] = JSON.stringify(APP_VERSION)
         return args
       })
+
+    config.externals({
+      'element-ui': 'ELEMENT',
+      lodash: '_',
+      pako: 'pako',
+      vue: 'Vue',
+      'vue-router': 'VueRouter',
+      'vue-i18n': 'VueI18n',
+    })
   }
 }

@@ -14,21 +14,31 @@ logger = logging.getLogger(__name__)
 
 EMOTICON_UPLOAD_PATH = os.path.join(config.DATA_PATH, 'emoticons')
 EMOTICON_BASE_URL = '/emoticons'
+CUSTOM_PUBLIC_PATH = os.path.join(config.DATA_PATH, 'custom_public')
 
 
-class MainHandler(tornado.web.StaticFileHandler):  # noqa
+class MainHandler(tornado.web.StaticFileHandler):
     """为了使用Vue Router的history模式，把不存在的文件请求转发到index.html"""
     async def get(self, path, include_body=True):
+        if path == '':
+            await self._get_index(include_body)
+            return
+
         try:
             await super().get(path, include_body)
         except tornado.web.HTTPError as e:
             if e.status_code != 404:
                 raise
             # 不存在的文件请求转发到index.html，交给前端路由
-            await super().get('index.html', include_body)
+            await self._get_index(include_body)
+
+    async def _get_index(self, include_body=True):
+        # index.html不缓存，防止更新后前端还是旧版
+        self.set_header('Cache-Control', 'no-cache')
+        await super().get('index.html', include_body)
 
 
-class ServerInfoHandler(api.base.ApiHandler):  # noqa
+class ServerInfoHandler(api.base.ApiHandler):
     async def get(self):
         cfg = config.get_config()
         self.write({
@@ -36,12 +46,13 @@ class ServerInfoHandler(api.base.ApiHandler):  # noqa
             'config': {
                 'enableTranslate': cfg.enable_translate,
                 'enableUploadFile': cfg.enable_upload_file,
-                'loaderUrl': cfg.loader_url
+                'loaderUrl': cfg.loader_url,
+                'enableAdminPlugins': cfg.enable_admin_plugins,
             }
         })
 
 
-class UploadEmoticonHandler(api.base.ApiHandler):  # noqa
+class UploadEmoticonHandler(api.base.ApiHandler):
     async def post(self):
         cfg = config.get_config()
         if not cfg.enable_upload_file:
@@ -56,12 +67,10 @@ class UploadEmoticonHandler(api.base.ApiHandler):  # noqa
         if not file.content_type.lower().startswith('image/'):
             raise tornado.web.HTTPError(415)
 
-        url = await asyncio.get_event_loop().run_in_executor(
+        url = await asyncio.get_running_loop().run_in_executor(
             None, self._save_file, file.body, self.request.remote_ip
         )
-        self.write({
-            'url': url
-        })
+        self.write({'url': url})
 
     @staticmethod
     def _save_file(body, client):
@@ -76,3 +85,21 @@ class UploadEmoticonHandler(api.base.ApiHandler):  # noqa
         os.replace(tmp_path, path)
 
         return f'{EMOTICON_BASE_URL}/{filename}'
+
+
+class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
+    def set_extra_headers(self, path):
+        self.set_header('Cache-Control', 'no-cache')
+
+
+ROUTES = [
+    (r'/api/server_info', ServerInfoHandler),
+    (r'/api/emoticon', UploadEmoticonHandler),
+]
+# 通配的放在最后
+LAST_ROUTES = [
+    (rf'{EMOTICON_BASE_URL}/(.*)', tornado.web.StaticFileHandler, {'path': EMOTICON_UPLOAD_PATH}),
+    # 这个目录不保证文件内容不会变，还是不用缓存了
+    (r'/custom_public/(.*)', NoCacheStaticFileHandler, {'path': CUSTOM_PUBLIC_PATH}),
+    (r'/(.*)', MainHandler, {'path': config.WEB_ROOT}),
+]

@@ -1,55 +1,107 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import argparse
+import asyncio
 import logging
 import logging.handlers
 import os
+import signal
+import sys
 import webbrowser
+from typing import *
 
 import tornado.ioloop
 import tornado.web
 
 import api.chat
 import api.main
+import api.open_live
+import api.plugin
 import config
 import models.database
 import services.avatar
 import services.chat
+import services.open_live
+import services.plugin
 import services.translate
 import update
+import utils.request
 
 logger = logging.getLogger(__name__)
 
-routes = [
-    (r'/api/server_info', api.main.ServerInfoHandler),
-    (r'/api/emoticon', api.main.UploadEmoticonHandler),
-
-    (r'/api/chat', api.chat.ChatHandler),
-    (r'/api/room_info', api.chat.RoomInfoHandler),
-    (r'/api/avatar_url', api.chat.AvatarHandler),
-
-    (rf'{api.main.EMOTICON_BASE_URL}/(.*)', tornado.web.StaticFileHandler, {'path': api.main.EMOTICON_UPLOAD_PATH}),
-    (r'/(.*)', api.main.MainHandler, {'path': config.WEB_ROOT, 'default_filename': 'index.html'})
+ROUTES = [
+    *api.main.ROUTES,
+    *api.chat.ROUTES,
+    *api.open_live.ROUTES,
+    *api.plugin.ROUTES,
+    *api.main.LAST_ROUTES,
 ]
 
+server: Optional[tornado.httpserver.HTTPServer] = None
 
-def main():
+shut_down_event: Optional[asyncio.Event] = None
+
+
+async def main():
+    if not init():
+        return 1
+    try:
+        await run()
+    finally:
+        await shut_down()
+    return 0
+
+
+def init():
+    init_signal_handlers()
+
     args = parse_args()
 
     init_logging(args.debug)
-    config.init()
-    models.database.init(args.debug)
+    logger.info('App started, initializing')
+    config.init(args)
+
+    utils.request.init()
+    models.database.init()
+
     services.avatar.init()
     services.translate.init()
+    services.open_live.init()
     services.chat.init()
-    update.check_update()
 
-    run_server(args.host, args.port, args.debug)
+    init_server()
+    if server is None:
+        return False
+
+    services.plugin.init()
+
+    update.check_update()
+    return True
+
+
+def init_signal_handlers():
+    global shut_down_event
+    shut_down_event = asyncio.Event()
+
+    signums = (signal.SIGINT, signal.SIGTERM)
+    try:
+        loop = asyncio.get_running_loop()
+        for signum in signums:
+            loop.add_signal_handler(signum, on_shut_down_signal)
+    except NotImplementedError:
+        # 不太安全，但Windows只能用这个
+        for signum in signums:
+            signal.signal(signum, on_shut_down_signal)
+
+
+def on_shut_down_signal(*_args):
+    shut_down_event.set()
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='用于OBS的仿YouTube风格的bilibili直播评论栏')
-    parser.add_argument('--host', help='服务器host，默认为127.0.0.1', default='127.0.0.1')
-    parser.add_argument('--port', help='服务器端口，默认为12450', type=int, default=12450)
+    parser.add_argument('--host', help='服务器host，默认和配置中的一样', default=None)
+    parser.add_argument('--port', help='服务器端口，默认和配置中的一样', type=int, default=None)
     parser.add_argument('--debug', help='调试模式', action='store_true')
     return parser.parse_args()
 
@@ -62,7 +114,6 @@ def init_logging(debug):
     )
     logging.basicConfig(
         format='{asctime} {levelname} [{name}]: {message}',
-        datefmt='%Y-%m-%d %H:%M:%S',
         style='{',
         level=logging.INFO if not debug else logging.DEBUG,
         handlers=[stream_handler, file_handler]
@@ -72,33 +123,53 @@ def init_logging(debug):
     logging.getLogger('tornado.access').setLevel(logging.WARNING)
 
 
-def run_server(host, port, debug):
+def init_server():
+    cfg = config.get_config()
     app = tornado.web.Application(
-        routes,
+        ROUTES,
         websocket_ping_interval=10,
-        debug=debug,
+        debug=cfg.debug,
         autoreload=False
     )
-    cfg = config.get_config()
     try:
-        app.listen(
-            port,
-            host,
+        global server
+        server = app.listen(
+            cfg.port,
+            cfg.host,
             xheaders=cfg.tornado_xheaders,
             max_body_size=1024 * 1024,
             max_buffer_size=1024 * 1024
         )
     except OSError:
-        logger.warning('Address is used %s:%d', host, port)
+        logger.warning('Address is used %s:%d', cfg.host, cfg.port)
         return
     finally:
-        url = 'http://localhost/' if port == 80 else f'http://localhost:{port}/'
-        # 防止更新版本后浏览器加载缓存
-        url += '?_v=' + update.VERSION
-        webbrowser.open(url)
-    logger.info('Server started: %s:%d', host, port)
-    tornado.ioloop.IOLoop.current().start()
+        if cfg.open_browser_at_startup:
+            url = 'http://localhost/' if cfg.port == 80 else f'http://localhost:{cfg.port}/'
+            webbrowser.open(url)
+    logger.info('Server started: %s:%d', cfg.host, cfg.port)
+
+
+async def run():
+    logger.info('Running event loop')
+    await shut_down_event.wait()
+    logger.info('Received shutdown signal')
+
+
+async def shut_down():
+    services.plugin.shut_down()
+
+    logger.info('Closing server')
+    server.stop()
+    await server.close_all_connections()
+
+    logger.info('Closing websocket connections')
+    await services.chat.shut_down()
+
+    await utils.request.shut_down()
+
+    logger.info('App shut down')
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(asyncio.run(main()))
