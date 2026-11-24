@@ -1,5 +1,8 @@
 <template>
-  <chat-renderer ref="renderer" :maxNumber="config.maxNumber" :showGiftName="config.showGiftName"></chat-renderer>
+  <chat-renderer v-if="!useCustomTemplate" ref="renderer" :maxNumber="config.maxNumber" :showGiftName="config.showGiftName"></chat-renderer>
+  <div v-else class="template-container">
+    <iframe ref="templateIframe" :src="config.templateUrl" class="template-iframe" frameborder="0"></iframe>
+  </div>
 </template>
 
 <script>
@@ -12,6 +15,174 @@ import * as chat from '@/api/chat'
 import * as chatModels from '@/api/chat/models'
 import ChatRenderer from '@/components/ChatRenderer'
 import * as constants from '@/components/ChatRenderer/constants'
+/** @import * as blcsdk from '@/blcsdk' */
+
+class DefaultRenderer {
+  constructor(rendererVm) {
+    this.addMessage = rendererVm.addMessage
+    this.delMessages = rendererVm.delMessages
+    this.updateMessage = rendererVm.updateMessage
+    this.mergeSimilarText = rendererVm.mergeSimilarText
+    this.mergeSimilarGift = rendererVm.mergeSimilarGift
+  }
+
+  destroy() {
+    let dummyFunc = () => {}
+    this.addMessage = dummyFunc
+    this.delMessages = dummyFunc
+    this.updateMessage = dummyFunc
+    this.mergeSimilarText = dummyFunc
+    this.mergeSimilarGift = dummyFunc
+  }
+}
+
+const BLC_SDK_VERSION = '1.0.1'
+const PRESET_CSS_URL = '/custom_public/preset.css'
+// 有这个特征字符串的style元素则注入到模板里
+const OBS_CSS_SIGN = 'blc-inject-into-template'
+
+class CustomTemplateRenderer {
+  constructor(templateIframe, config) {
+    this._templateIframe = templateIframe
+    this._config = config
+
+    this._enabledSendMessageToTemplate = (type, data) => {
+      let msg = { type, data }
+      templateIframe.contentWindow.postMessage(msg, '*')
+    }
+    this._sendMessageToTemplate = () => {}
+
+    this._boundOnWindowMessage = this._onWindowMessage.bind(this)
+    window.addEventListener('message', this._boundOnWindowMessage)
+
+    this._connected = false
+    this._styleObserver = null
+  }
+
+  destroy() {
+    if (this._styleObserver) {
+      this._styleObserver.disconnect()
+      this._styleObserver = null
+    }
+
+    window.removeEventListener('message', this._boundOnWindowMessage)
+
+    let dummyFunc = () => {}
+    this._enabledSendMessageToTemplate = dummyFunc
+    this._sendMessageToTemplate = dummyFunc
+  }
+
+  addMessage(message) {
+    this._sendMessageToTemplate('blcAddMsg', message)
+  }
+
+  delMessages(ids) {
+    let data = { ids }
+    this._sendMessageToTemplate('blcDelMsgs', data)
+  }
+
+  updateMessage(id, newValuesObj) {
+    let data = { id, newValuesObj }
+    this._sendMessageToTemplate('blcUpdateMsg', data)
+  }
+
+  mergeSimilarText() {
+    return false
+  }
+
+  mergeSimilarGift() {
+    return false
+  }
+
+  _onWindowMessage(event) {
+    if (event.source !== this._templateIframe.contentWindow) {
+      return
+    }
+
+    let { type } = event.data
+    switch (type) {
+    case 'blcTemplateConnect': {
+      if (this._connected) {
+        console.warn('模板重复连接')
+        break
+      }
+      this._connected = true
+
+      // 发送初始化消息
+      let initData = {
+        blcVersion: process.env.APP_VERSION,
+        sdkVersion: BLC_SDK_VERSION,
+        config: {
+          showGiftName: this._config.showGiftName,
+          mergeSimilarDanmaku: this._config.mergeSimilarDanmaku,
+          mergeGift: this._config.mergeGift,
+          maxNumber: this._config.maxNumber,
+        }
+      }
+      this._sendMessageToTemplate = this._enabledSendMessageToTemplate
+      this._sendMessageToTemplate('blcInit', initData)
+
+      this._injectCss()
+      break
+    }
+    }
+  }
+
+  _injectCss() {
+    let injectCssUrls = []
+    if (this._config.importPresetCss) {
+      injectCssUrls.push(window.location.origin + PRESET_CSS_URL)
+    }
+
+    let injectCssArr = []
+    for (let el of document.querySelectorAll('style')) {
+      if (el.textContent.indexOf(OBS_CSS_SIGN) !== -1) {
+        injectCssArr.push(el.textContent)
+      }
+    }
+
+    if (injectCssUrls.length !== 0 || injectCssArr.length !== 0) {
+      this._sendMessageToTemplate('blcInjectCss', {
+        injectCssUrls: injectCssUrls,
+        injectCss: injectCssArr.join('\n\n'),
+      })
+    }
+
+    // OBS的自定义CSS可能在之后注入，再监听一段时间。OBS和直播姬都是注入到head的，如果有其他软件不是再改吧
+    this._styleObserver = new MutationObserver(this._onDomMutate.bind(this))
+    this._styleObserver.observe(document.head, { childList: true })
+    window.setTimeout(() => {
+      if (this._styleObserver) {
+        this._styleObserver.disconnect()
+        this._styleObserver = null
+      }
+    }, 30 * 1000)
+  }
+
+  _onDomMutate(mutations) {
+    let injectCssArr = []
+    for (let mutation of mutations) {
+      if (mutation.type !== 'childList') {
+        continue
+      }
+      for (let el of mutation.addedNodes) {
+        if (el.nodeName !== 'STYLE') {
+          continue
+        }
+        if (el.textContent.indexOf(OBS_CSS_SIGN) !== -1) {
+          injectCssArr.push(el.textContent)
+        }
+      }
+    }
+
+    if (injectCssArr.length !== 0) {
+      this._sendMessageToTemplate('blcInjectCss', {
+        injectCssUrls: [],
+        injectCss: injectCssArr.join('\n\n'),
+      })
+    }
+  }
+}
 
 export default {
   name: 'Room',
@@ -42,8 +213,12 @@ export default {
       textEmoticons: [], // 官方的文本表情（后端配置的）
       pronunciationConverter: null,
 
-      customStyleElement, // 仅用于样式生成器中预览样式
+      customStyleElement, // 仅用于样式生成器中预览样式和使用自定义模板时
       presetCssLinkElement: null,
+
+      pendingMsgIdToPromise: new Map(), // 正在异步处理，渲染器还没收到的消息，用于一些有时序依赖的消息
+
+      renderer: null,
     }
   },
   computed: {
@@ -72,16 +247,28 @@ export default {
         }
       }
       return res
+    },
+    useCustomTemplate() {
+      return this.config.templateUrl !== ''
+    },
+  },
+  beforeMount() {
+    this.initConfig()
+
+    // 主框架改成透明背景，防止影响到模板
+    if (this.useCustomTemplate) {
+      this.customStyleElement.textContent = 'body { background-color: transparent; }'
     }
   },
   mounted() {
+    if (this.useCustomTemplate) {
+      this.renderer = new CustomTemplateRenderer(this.$refs.templateIframe, this.config)
+    } else {
+      this.renderer = new DefaultRenderer(this.$refs.renderer)
+    }
+
     if (document.visibilityState === 'visible') {
-      if (this.roomKeyValue === null) {
-        this.init()
-      } else {
-        // 正式房间要随机延迟加载，防止同时请求导致雪崩
-        window.setTimeout(this.init, Math.random() * 3000)
-      }
+      this.init()
     } else {
       // 当前窗口不可见，延迟到可见时加载，防止OBS中一次并发太多请求（OBS中浏览器不可见时也会加载网页，除非显式设置）
       document.addEventListener('visibilitychange', this.onVisibilityChange)
@@ -101,6 +288,10 @@ export default {
     if (this.presetCssLinkElement) {
       document.head.removeChild(this.presetCssLinkElement)
     }
+
+    if (this.renderer) {
+      this.renderer.destroy()
+    }
   },
   methods: {
     onVisibilityChange() {
@@ -111,18 +302,16 @@ export default {
       this.init()
     },
     async init() {
-      this.initConfig()
-
       let initChatClientPromise = this.initChatClient()
       this.initTextEmoticons()
       if (this.config.giftUsernamePronunciation !== '') {
         this.pronunciationConverter = new pronunciation.PronunciationConverter()
         this.pronunciationConverter.loadDict(this.config.giftUsernamePronunciation)
       }
-      if (this.config.importPresetCss) {
+      if (this.config.importPresetCss && !this.useCustomTemplate) {
         this.presetCssLinkElement = document.createElement('link')
         this.presetCssLinkElement.rel = 'stylesheet'
-        this.presetCssLinkElement.href = '/custom_public/preset.css'
+        this.presetCssLinkElement.href = PRESET_CSS_URL
         document.head.appendChild(this.presetCssLinkElement)
       }
 
@@ -142,6 +331,8 @@ export default {
         message: 'Loaded',
         duration: 500
       })
+
+      this.sendMessageToStylegen('stylegenExampleRoomLoad')
     },
     initConfig() {
       let locale = this.strConfig.lang
@@ -167,6 +358,7 @@ export default {
       cfg.maxNumber = toInt(cfg.maxNumber, chatConfig.DEFAULT_CONFIG.maxNumber)
 
       cfg.blockGiftDanmaku = toBool(cfg.blockGiftDanmaku)
+      cfg.blockMirrorMessages = toBool(cfg.blockMirrorMessages)
       cfg.blockLevel = toInt(cfg.blockLevel, chatConfig.DEFAULT_CONFIG.blockLevel)
       cfg.blockNewbie = toBool(cfg.blockNewbie)
       cfg.blockNotMobileVerified = toBool(cfg.blockNotMobileVerified)
@@ -220,8 +412,18 @@ export default {
       this.textEmoticons = await chat.getTextEmoticons()
     },
 
+    sendMessageToStylegen(type, data = null) {
+      if (window.parent === window) {
+        return
+      }
+      let msg = { type, data }
+      window.parent.postMessage(msg, window.location.origin)
+    },
     // 处理样式生成器发送的消息
     onWindowMessage(event) {
+      if (event.source !== window.parent) {
+        return
+      }
       if (event.origin !== window.location.origin) {
         console.warn(`消息origin错误，${event.origin} != ${window.location.origin}`)
         return
@@ -230,7 +432,12 @@ export default {
       let { type, data } = event.data
       switch (type) {
       case 'roomSetCustomStyle':
-        this.customStyleElement.innerText = data.css
+        this.customStyleElement.textContent = data.css
+        break
+      case 'roomSetMessageConfig':
+        if (this.chatClient && this.chatClient.setMsgConfig) {
+          this.chatClient.setMsgConfig(data)
+        }
         break
       case 'roomStartClient':
         if (this.chatClient) {
@@ -246,15 +453,32 @@ export default {
     },
 
     /** @param {chatModels.AddTextMsg} data */
-    async onAddText(data) {
+    onAddText(data) {
+      let promise = this.doOnAddText(data).catch(() => {})
+      let id = data.id
+      this.pendingMsgIdToPromise.set(id, promise)
+      promise.finally(() => {
+        this.pendingMsgIdToPromise.delete(id)
+      })
+    },
+    // 保证渲染器收到消息了
+    async ensureMessageSent(id) {
+      let promise = this.pendingMsgIdToPromise.get(id)
+      if (promise !== undefined) {
+        return promise
+      }
+    },
+    /** @param {chatModels.AddTextMsg} data */
+    async doOnAddText(data) {
       if (!this.config.showDanmaku || !this.filterTextMessage(data)) {
         return
       }
-      let richContent = await this.getRichContent(data)
+      let contentParts = await this.parseContentParts(data)
       // 合并要放在异步调用后面，因为异步调用后可能有新的消息，会漏合并
       if (this.mergeSimilarText(data.content)) {
         return
       }
+      /** @type {typeof blcsdk.TextMsg} */
       let message = {
         id: data.id,
         type: constants.MESSAGE_TYPE_TEXT,
@@ -263,12 +487,17 @@ export default {
         authorName: data.authorName,
         authorType: data.authorType,
         content: data.content,
-        richContent: richContent,
+        contentParts: contentParts,
         privilegeType: data.privilegeType,
         repeated: 1,
-        translation: data.translation
+        translation: this.config.autoTranslate ? data.translation : '',
+        isMirror: data.isMirror,
+        // 给模板用的字段
+        uid: data.uid,
+        medalLevel: data.medalLevel,
+        medalName: data.medalName,
       }
-      this.$refs.renderer.addMessage(message)
+      this.renderer.addMessage(message)
     },
     /** @param {chatModels.AddGiftMsg} data */
     onAddGift(data) {
@@ -282,6 +511,7 @@ export default {
       if (price < this.config.minGiftPrice) { // 丢人
         return
       }
+      /** @type {typeof blcsdk.GiftMsg} */
       let message = {
         id: data.id,
         type: constants.MESSAGE_TYPE_GIFT,
@@ -290,17 +520,25 @@ export default {
         authorName: data.authorName,
         authorNamePronunciation: this.getPronunciation(data.authorName),
         price: price,
-        // freePrice: data.totalFreeCoin, // 暂时没用到
         giftName: data.giftName,
-        num: data.num
+        num: data.num,
+        // 给模板用的字段
+        totalFreeCoin: data.totalFreeCoin,
+        giftId: data.giftId,
+        giftIconUrl: data.giftIconUrl,
+        uid: data.uid,
+        privilegeType: data.privilegeType,
+        medalLevel: data.medalLevel,
+        medalName: data.medalName,
       }
-      this.$refs.renderer.addMessage(message)
+      this.renderer.addMessage(message)
     },
     /** @param {chatModels.AddMemberMsg} data */
     onAddMember(data) {
       if (!this.config.showGift || !this.filterNewMemberMessage(data)) {
         return
       }
+      /** @type {typeof blcsdk.MemberMsg} */
       let message = {
         id: data.id,
         type: constants.MESSAGE_TYPE_MEMBER,
@@ -309,9 +547,16 @@ export default {
         authorName: data.authorName,
         authorNamePronunciation: this.getPronunciation(data.authorName),
         privilegeType: data.privilegeType,
-        title: this.$t('chat.membershipTitle')
+        title: this.$t('chat.membershipTitle'),
+        // 给模板用的字段
+        num: data.num,
+        unit: data.unit,
+        price: data.totalCoin / 1000,
+        uid: data.uid,
+        medalLevel: data.medalLevel,
+        medalName: data.medalName,
       }
-      this.$refs.renderer.addMessage(message)
+      this.renderer.addMessage(message)
     },
     /** @param {chatModels.AddSuperChatMsg} data */
     onAddSuperChat(data) {
@@ -321,6 +566,7 @@ export default {
       if (data.price < this.config.minGiftPrice) { // 丢人
         return
       }
+      /** @type {typeof blcsdk.SuperChatMsg} */
       let message = {
         id: data.id,
         type: constants.MESSAGE_TYPE_SUPER_CHAT,
@@ -330,20 +576,27 @@ export default {
         price: data.price,
         time: new Date(data.timestamp * 1000),
         content: data.content.trim(),
-        translation: data.translation
+        translation: this.config.autoTranslate ? data.translation : '',
+        // 给模板用的字段
+        uid: data.uid,
+        privilegeType: data.privilegeType,
+        medalLevel: data.medalLevel,
+        medalName: data.medalName,
       }
-      this.$refs.renderer.addMessage(message)
+      this.renderer.addMessage(message)
     },
     /** @param {chatModels.DelSuperChatMsg} data */
-    onDelSuperChat(data) {
-      this.$refs.renderer.delMessages(data.ids)
+    async onDelSuperChat(data) {
+      await Promise.all(data.ids.map(this.ensureMessageSent))
+      this.renderer.delMessages(data.ids)
     },
     /** @param {chatModels.UpdateTranslationMsg} data */
-    onUpdateTranslation(data) {
+    async onUpdateTranslation(data) {
       if (!this.config.autoTranslate) {
         return
       }
-      this.$refs.renderer.updateMessage(data.id, { translation: data.translation })
+      await this.ensureMessageSent(data.id)
+      this.renderer.updateMessage(data.id, { translation: data.translation })
     },
     /** @param {chatModels.ChatClientFatalError} error */
     onFatalError(error) {
@@ -379,6 +632,8 @@ export default {
     filterTextMessage(data) {
       if (this.config.blockGiftDanmaku && data.isGiftDanmaku) {
         return false
+      } else if (this.config.blockMirrorMessages && data.isMirror) {
+        return false
       } else if (this.config.blockLevel > 0 && data.authorLevel < this.config.blockLevel) {
         return false
       } else if (this.config.blockNewbie && data.isNewbie) {
@@ -413,13 +668,13 @@ export default {
       if (!this.config.mergeSimilarDanmaku) {
         return false
       }
-      return this.$refs.renderer.mergeSimilarText(content)
+      return this.renderer.mergeSimilarText(content)
     },
     mergeSimilarGift(authorName, price, freePrice, giftName, num) {
       if (!this.config.mergeGift) {
         return false
       }
-      return this.$refs.renderer.mergeSimilarGift(authorName, price, freePrice, giftName, num)
+      return this.renderer.mergeSimilarGift(authorName, price, freePrice, giftName, num)
     },
     getPronunciation(text) {
       if (this.pronunciationConverter === null) {
@@ -427,29 +682,29 @@ export default {
       }
       return this.pronunciationConverter.getPronunciation(text)
     },
-    async getRichContent(data) {
-      let richContent = []
+    async parseContentParts(data) {
+      let contentParts = []
 
       // 官方的非文本表情
       if (data.emoticon !== null) {
-        richContent.push({
-          type: constants.CONTENT_TYPE_IMAGE,
+        contentParts.push({
+          type: constants.CONTENT_PART_TYPE_IMAGE,
           text: data.content,
           url: data.emoticon,
           width: 0,
           height: 0
         })
-        await this.fillImageContentSizes(richContent)
-        return richContent
+        await this.fillImageContentSizes(contentParts)
+        return contentParts
       }
 
       // 没有文本表情，只能是纯文本
       if (this.config.emoticons.length === 0 && this.textEmoticons.length === 0) {
-        richContent.push({
-          type: constants.CONTENT_TYPE_TEXT,
+        contentParts.push({
+          type: constants.CONTENT_PART_TYPE_TEXT,
           text: data.content
         })
-        return richContent
+        return contentParts
       }
 
       // 可能含有文本表情，需要解析
@@ -466,15 +721,15 @@ export default {
 
         // 加入之前的文本
         if (pos !== startPos) {
-          richContent.push({
-            type: constants.CONTENT_TYPE_TEXT,
+          contentParts.push({
+            type: constants.CONTENT_PART_TYPE_TEXT,
             text: data.content.slice(startPos, pos)
           })
         }
 
         // 加入表情
-        richContent.push({
-          type: constants.CONTENT_TYPE_IMAGE,
+        contentParts.push({
+          type: constants.CONTENT_PART_TYPE_IMAGE,
           text: matchEmoticon.keyword,
           url: matchEmoticon.url,
           width: 0,
@@ -485,19 +740,19 @@ export default {
       }
       // 加入尾部的文本
       if (pos !== startPos) {
-        richContent.push({
-          type: constants.CONTENT_TYPE_TEXT,
+        contentParts.push({
+          type: constants.CONTENT_PART_TYPE_TEXT,
           text: data.content.slice(startPos, pos)
         })
       }
 
-      await this.fillImageContentSizes(richContent)
-      return richContent
+      await this.fillImageContentSizes(contentParts)
+      return contentParts
     },
-    async fillImageContentSizes(richContent) {
+    async fillImageContentSizes(contentParts) {
       let urlSizeMap = new Map()
-      for (let content of richContent) {
-        if (content.type === constants.CONTENT_TYPE_IMAGE) {
+      for (let content of contentParts) {
+        if (content.type === constants.CONTENT_PART_TYPE_IMAGE) {
           urlSizeMap.set(content.url, { width: 0, height: 0 })
         }
       }
@@ -527,8 +782,8 @@ export default {
       }
       await Promise.all(promises)
 
-      for (let content of richContent) {
-        if (content.type === constants.CONTENT_TYPE_IMAGE) {
+      for (let content of contentParts) {
+        if (content.type === constants.CONTENT_PART_TYPE_IMAGE) {
           let size = urlSizeMap.get(content.url)
           content.width = size.width
           content.height = size.height
@@ -538,3 +793,16 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.template-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.template-iframe {
+  width: 100%;
+  height: 100%;
+}
+</style>

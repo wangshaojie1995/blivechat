@@ -1,3 +1,4 @@
+import { ensureBaseUrlInited, getBaseUrl } from '@/api/base'
 import * as chat from '.'
 import * as chatModels from './models'
 
@@ -45,15 +46,23 @@ export default class ChatClientRelay {
     this.msgHandler.onDebugMsg(new chatModels.DebugMsg({ content }))
   }
 
-  wsConnect() {
+  async wsConnect() {
     if (this.isDestroying) {
       return
     }
 
     this.addDebugMsg('Connecting')
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${protocol}://${window.location.host}/api/chat`
+    await ensureBaseUrlInited()
+    let baseUrl = getBaseUrl()
+    if (baseUrl === null) {
+      this.addDebugMsg('No available endpoint')
+      window.setTimeout(() => this.onWsClose(), 0)
+      return
+    }
+    let url = baseUrl.replace(/^http(s?):/, 'ws$1:')
+    url += '/api/chat'
+
     this.websocket = new WebSocket(url)
     this.websocket.onopen = this.onWsOpen.bind(this)
     this.websocket.onclose = this.onWsClose.bind(this)
@@ -172,7 +181,10 @@ export default class ChatClientRelay {
         medalLevel: data[10],
         id: data[11],
         translation: data[12],
-        emoticon: emoticon
+        emoticon: emoticon,
+        isMirror: Boolean(data[18]),
+        uid: data[16],
+        medalName: data[17],
       })
       this.msgHandler.onAddText(data)
       break

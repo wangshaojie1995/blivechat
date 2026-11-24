@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import hashlib
+import json
 import logging
 import os
 
+import cachetools
 import tornado.web
+import yarl
 
 import api.base
 import config
@@ -15,9 +18,13 @@ logger = logging.getLogger(__name__)
 EMOTICON_UPLOAD_PATH = os.path.join(config.DATA_PATH, 'emoticons')
 EMOTICON_BASE_URL = '/emoticons'
 CUSTOM_PUBLIC_PATH = os.path.join(config.DATA_PATH, 'custom_public')
+TEMPLATE_PATH = os.path.join(CUSTOM_PUBLIC_PATH, 'templates')
+TEMPLATE_BASE_URL = '/custom_public/templates'
+
+_templates_cache = cachetools.TTLCache(1, 10)
 
 
-class MainHandler(tornado.web.StaticFileHandler):
+class StaticHandler(tornado.web.StaticFileHandler):
     """为了使用Vue Router的history模式，把不存在的文件请求转发到index.html"""
     async def get(self, path, include_body=True):
         if path == '':
@@ -50,6 +57,19 @@ class ServerInfoHandler(api.base.ApiHandler):
                 'enableAdminPlugins': cfg.enable_admin_plugins,
             }
         })
+
+
+class ServiceDiscoveryHandler(api.base.ApiHandler):
+    async def get(self):
+        cfg = config.get_config()
+        self.write({
+            'endpoints': cfg.registered_endpoints,
+        })
+
+
+class PingHandler(api.base.ApiHandler):
+    async def get(self):
+        self.set_status(204)
 
 
 class UploadEmoticonHandler(api.base.ApiHandler):
@@ -87,6 +107,77 @@ class UploadEmoticonHandler(api.base.ApiHandler):
         return f'{EMOTICON_BASE_URL}/{filename}'
 
 
+class TemplatesHandler(api.base.ApiHandler):
+    async def get(self):
+        templates = _templates_cache.get('templates', None)
+        if templates is None:
+            templates = await asyncio.get_running_loop().run_in_executor(None, self._get_templates)
+            _templates_cache['templates'] = templates
+
+        self.set_header('Cache-Control', 'private, max-age=10')
+        self.write({'templates': templates})
+
+    def _get_templates(self):
+        entries = []
+        try:
+            with os.scandir(TEMPLATE_PATH) as it:
+                for entry in it:
+                    if entry.is_dir() and os.path.isfile(os.path.join(entry.path, 'template.json')):
+                        entries.append((-entry.stat().st_mtime, entry.name))
+        except OSError:
+            logger.exception('Failed to discover templates:')
+            return []
+        if not entries:
+            return []
+        entries.sort()
+        template_ids = [entry[1] for entry in entries]
+
+        templates = []
+        for template_id in template_ids:
+            try:
+                template = self._load_template_config(template_id)
+                templates.append(template)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                logger.exception('template_id=%s failed to load config:', template_id)
+        return templates
+
+    @staticmethod
+    def _load_template_config(template_id):
+        config_path = os.path.join(TEMPLATE_PATH, template_id, 'template.json')
+        with open(config_path, encoding='utf-8') as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise TypeError(f'Config type error, type={type(cfg)}')
+
+        # 相对于模板目录
+        base_url = yarl.URL(f'{TEMPLATE_BASE_URL}/{template_id}/')
+
+        def ensure_abs_url(url_str_):
+            url_ = yarl.URL(url_str_)
+            if not url_.absolute:
+                url_ = base_url.join(url_)
+            url_str_ = str(url_)
+            return url_str_
+
+        thumbnail_url_str = str(cfg.get('thumbnail', ''))
+        if thumbnail_url_str != '':
+            thumbnail_url_str = ensure_abs_url(thumbnail_url_str)
+
+        url_str = str(cfg.get('url', ''))
+        url_str = ensure_abs_url(url_str)
+
+        template = {
+            'id': template_id,
+            'name': str(cfg.get('name', '')),
+            'version': str(cfg.get('version', '')),
+            'author': str(cfg.get('author', '')),
+            'description': str(cfg.get('description', '')),
+            'thumbnail': thumbnail_url_str,
+            'url': url_str,
+        }
+        return template
+
+
 class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
     def set_extra_headers(self, path):
         self.set_header('Cache-Control', 'no-cache')
@@ -94,12 +185,15 @@ class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
 
 ROUTES = [
     (r'/api/server_info', ServerInfoHandler),
+    (r'/api/endpoints', ServiceDiscoveryHandler),
+    (r'/api/ping', PingHandler),
     (r'/api/emoticon', UploadEmoticonHandler),
+    (r'/api/templates', TemplatesHandler),
 ]
 # 通配的放在最后
 LAST_ROUTES = [
     (rf'{EMOTICON_BASE_URL}/(.*)', tornado.web.StaticFileHandler, {'path': EMOTICON_UPLOAD_PATH}),
     # 这个目录不保证文件内容不会变，还是不用缓存了
     (r'/custom_public/(.*)', NoCacheStaticFileHandler, {'path': CUSTOM_PUBLIC_PATH}),
-    (r'/(.*)', MainHandler, {'path': config.WEB_ROOT}),
+    (r'/(.*)', StaticHandler, {'path': config.WEB_ROOT}),
 ]

@@ -1,5 +1,4 @@
-import axios from 'axios'
-
+import { apiClient as axios, getBaseUrl } from '@/api/base'
 import * as chat from '.'
 import * as chatModels from './models'
 import * as base from './ChatClientOfficialBase'
@@ -14,6 +13,8 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
 
     this.roomOwnerAuthCode = roomOwnerAuthCode
 
+    this.boundEndGameBeforeUnload = this.endGameBeforeUnload.bind(this)
+
     // 调用initRoom后初始化
     this.roomOwnerOpenId = null
     this.hostServerUrlList = []
@@ -23,7 +24,15 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
     this.gameHeartbeatTimerId = null
   }
 
+  start() {
+    super.start()
+
+    window.addEventListener('beforeunload', this.boundEndGameBeforeUnload)
+  }
+
   stop() {
+    window.removeEventListener('beforeunload', this.boundEndGameBeforeUnload)
+
     this.endGame()
 
     super.stop()
@@ -98,6 +107,29 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
       return false
     }
     return true
+  }
+
+  endGameBeforeUnload() {
+    let baseUrl = getBaseUrl()
+    if (baseUrl === null) {
+      return
+    }
+
+    this.needInitRoom = true
+    if (!this.gameId) {
+      return
+    }
+    let gameId = this.gameId
+    // 直接丢弃将要关闭的gameId
+    this.gameId = null
+
+    let url = `${baseUrl}/api/open_live/end_game`
+    let body = {
+      app_id: 0,
+      game_id: gameId
+    }
+    body = new Blob([JSON.stringify(body)], { type: 'application/json' })
+    window.navigator.sendBeacon(url, body)
   }
 
   onSendGameHeartbeat() {
@@ -182,16 +214,41 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
     super.delayReconnect()
   }
 
-  async dmCallback(command) {
+  interactionEndCallback(command) {
+    if (command.data.game_id !== this.gameId) {
+      return
+    }
+    // 服务器主动停止推送，可能是心跳超时，需要重新开启项目
+    console.error(`Open Live session end by server, gameId=${this.gameId}`)
+    this.addDebugMsg('Open Live session end by server')
+
+    this.gameId = null
+    this.needInitRoom = true
+    this.discardWebsocket()
+  }
+
+  dmMirrorCallback(command) {
+    command._isMirror = true
+    this.dmCallback(command)
+  }
+
+  dmCallback(command) {
     let data = command.data
 
     let authorType
     if (data.open_id === this.roomOwnerOpenId) {
       authorType = 3
+    } else if (data.is_admin) {
+      authorType = 2
     } else if (data.guard_level !== 0) {
       authorType = 1
     } else {
       authorType = 0
+    }
+
+    let showContent = data.msg
+    if (data.reply_uname !== '') {
+      showContent = `@${data.reply_uname} ${showContent}`
     }
 
     let emoticon = null
@@ -204,19 +261,23 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
       timestamp: data.timestamp,
       authorName: data.uname,
       authorType: authorType,
-      content: data.msg,
+      content: showContent,
       privilegeType: data.guard_level,
       isGiftDanmaku: chat.isGiftDanmakuByContent(data.msg),
       medalLevel: data.fans_medal_wearing_status ? data.fans_medal_level : 0,
       id: data.msg_id,
       emoticon: emoticon,
+      isMirror: Boolean(command._isMirror),
+      // 给模板用的字段
+      uid: data.open_id,
+      medalName: data.fans_medal_wearing_status ? data.fans_medal_name : '',
     })
     this.msgHandler.onAddText(data)
   }
 
   sendGiftCallback(command) {
     let data = command.data
-    let totalCoin = data.price * data.gift_num
+    let totalCoin = data.r_price * data.gift_num
     data = new chatModels.AddGiftMsg({
       id: data.msg_id,
       avatarUrl: chat.processAvatarUrl(data.uface),
@@ -225,19 +286,33 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
       totalCoin: data.paid ? totalCoin : 0,
       totalFreeCoin: !data.paid ? totalCoin : 0,
       giftName: data.gift_name,
-      num: data.gift_num
+      num: data.gift_num,
+      // 给模板用的字段
+      giftId: data.gift_id,
+      giftIconUrl: data.gift_icon,
+      uid: data.open_id,
+      privilegeType: data.guard_level,
+      medalLevel: data.fans_medal_wearing_status ? data.fans_medal_level : 0,
+      medalName: data.fans_medal_wearing_status ? data.fans_medal_name : '',
     })
     this.msgHandler.onAddGift(data)
   }
 
-  async guardCallback(command) {
+  guardCallback(command) {
     let data = command.data
     data = new chatModels.AddMemberMsg({
       id: data.msg_id,
       avatarUrl: chat.processAvatarUrl(data.user_info.uface),
       timestamp: data.timestamp,
       authorName: data.user_info.uname,
-      privilegeType: data.guard_level
+      privilegeType: data.guard_level,
+      // 给模板用的字段
+      num: data.guard_num,
+      unit: data.guard_unit,
+      total_coin: data.price * data.guard_num,
+      uid: data.user_info.open_id,
+      medalLevel: data.fans_medal_wearing_status ? data.fans_medal_level : 0,
+      medalName: data.fans_medal_wearing_status ? data.fans_medal_name : '',
     })
     this.msgHandler.onAddMember(data)
   }
@@ -251,6 +326,11 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
       authorName: data.uname,
       price: data.rmb,
       content: data.message,
+      // 给模板用的字段
+      uid: data.open_id,
+      privilegeType: data.guard_level,
+      medalLevel: data.fans_medal_wearing_status ? data.fans_medal_level : 0,
+      medalName: data.fans_medal_wearing_status ? data.fans_medal_name : '',
     })
     this.msgHandler.onAddSuperChat(data)
   }
@@ -266,7 +346,9 @@ export default class ChatClientDirectOpenLive extends ChatClientOfficialBase {
 }
 
 const CMD_CALLBACK_MAP = {
+  LIVE_OPEN_PLATFORM_INTERACTION_END: ChatClientDirectOpenLive.prototype.interactionEndCallback,
   LIVE_OPEN_PLATFORM_DM: ChatClientDirectOpenLive.prototype.dmCallback,
+  LIVE_OPEN_PLATFORM_DM_MIRROR: ChatClientDirectOpenLive.prototype.dmMirrorCallback,
   LIVE_OPEN_PLATFORM_SEND_GIFT: ChatClientDirectOpenLive.prototype.sendGiftCallback,
   LIVE_OPEN_PLATFORM_GUARD: ChatClientDirectOpenLive.prototype.guardCallback,
   LIVE_OPEN_PLATFORM_SUPER_CHAT: ChatClientDirectOpenLive.prototype.superChatCallback,

@@ -3,59 +3,62 @@ import * as chat from '.'
 import * as chatModels from './models'
 
 const NAMES = [
-  '光羊',
-  '黑炎',
-  '孤梦星影',
+  '成龙',
+  '杨戬',
+  '孙悟空',
+  '哈基米',
+  '大张伟',
+  '周冠宇',
+  '五条悟',
   '博丽灵梦',
-  '雾雨魔理沙',
+  '御剑侍伶',
+  '田所浩二',
+  '小岛秀夫',
+  '長崎そよ',
+  '柚木つばめ',
   '空條承太郎',
+  'みもりあいの',
   'ディオ・ブランドー',
-  'ジョセフ・ジョースター',
-  'ジョナサン・ジョースター',
-  'Simon',
-  'Misty',
-  'Kinori',
-  'shugen',
-  '3Shain',
-  'yuyuyzl',
+  'Dante',
+  'xQcOW',
+  'Makarov',
   'xfgryujk',
-  'Il Harper',
+  'Jim Hacker',
   'Rick Astley',
+  'Tifa Lockhart',
+  'Arthur Morgan',
 ]
 
 const CONTENTS = [
   '草',
+  '会赢的',
   '让我看看',
-  '不要停下来啊',
+  '卑鄙的外乡人',
   '我不做人了，JOJO',
+  '想吃广东菜✋😭✋',
   '已经没有什么好怕的了',
-  '我柜子动了，我不玩了',
-  '老板大气，老板身体健康',
-  '我醉提酒游寒山，爽滑慢舔',
+  '你这猴子，真令我欢喜',
   '[dog]文本[比心]表情[喝彩]',
+  '阿祖，投降吧，外面全是警察',
   '無駄無駄無駄無駄無駄無駄無駄無駄',
-  '欧啦欧啦欧啦欧啦欧啦欧啦欧啦欧啦',
-  '所有没好全部康复呀，我的癌也全部康复呀',
-  '嚯，朝我走过来了吗，没有选择逃跑而是主动接近我么',
-  '有一说一，这件事大家懂的都懂，不懂的，说了你也不明白，不如不说',
-  '如来来了吗？如来嘛~他真来了吗？如~来~到底来没来？如来~如来他真来了吗？如来~你看看，来没来？如~来~',
+  '我衰咗三年，我等緊個機會，爭番口氣',
+  '因为你的缘故，我的心中萌生了多余的情感',
+  'CJK令化天家少房所沪港漢澳直真空角言门骨',
   '迷えば、敗れる',
   '逃げるんだよォ！',
-  '竜神の剣を喰らえ！',
-  '竜が我が敌を喰らう！',
-  '言いたいことがあるんだよ！',
-  '知らず知らず隠してた 本当の声を響かせてよほら',
+  '届かない恋をしていても',
+  'なんで春日影やったの！？',
   'kksk',
+  'Y.M.C.A.',
   '8888888888',
   'text[吃瓜]emoticon',
+  'Remember... no Russian',
   'Never gonna give you up',
-  'Never gonna let you down',
-  '888888888888888888888888888888',
-  'I am the storm that is approaching',
-  "I can eat glass, it doesn't hurt me",
-  'The quick brown fox jumps over the lazy dog',
+  'DU↗DU→DU↗DU↓ Max Verstappen',
   'Farewell, ashen one. May the flame guide thee',
-  'I am the bone of my sword. Steel is my body, and fire is my blood.',
+  'Hey Vergil, your portal opening days are over. Give me the Yamato',
+  '<script>alert("CHECK YOUR CODE")</script>',
+  '<img src=1 onerror="alert(\'CHECK YOUR CODE\')">',
 ]
 
 const EMOTICONS = [
@@ -64,13 +67,23 @@ const EMOTICONS = [
   'lipu',
   'huangdou_xihuan',
   'sakaban_jiayu_yutou',
-].map(name => `/static/img/emoticons/${name}.png`)
+].map(name => `${window.location.origin}/static/img/emoticons/${name}.png`)
+
+const TRANSLATIONS = [
+  '这是翻译',
+  'これは翻訳です',
+  'blah blah blah',
+]
 
 const AUTHOR_TYPES = [
   { weight: 10, value: constants.AUTHOR_TYPE_NORMAL },
   { weight: 5, value: constants.AUTHOR_TYPE_MEMBER },
   { weight: 2, value: constants.AUTHOR_TYPE_ADMIN },
   { weight: 1, value: constants.AUTHOR_TYPE_OWNER }
+]
+
+const GUARD_LEVEL_TO_PRICE = [
+  0, 19998, 1998, 198
 ]
 
 function randGuardInfo() {
@@ -86,14 +99,28 @@ function randGuardInfo() {
   return { authorType, privilegeType }
 }
 
+const MEDAL_NAMES = [
+  'ikun',
+  'K学姐',
+  '小孤独',
+  'Go学长',
+  '不登校',
+]
+
+function randMedalInfo() {
+  let medalLevel = randInt(1, 4) <= 1 ? 0 : randInt(1, 40)
+  let medalName = medalLevel === 0 ? '' : randomChoose(MEDAL_NAMES)
+  return { medalLevel, medalName }
+}
+
 const GIFT_INFO_LIST = [
-  { giftName: '辣条', totalFreeCoin: 1000, num: 10 },
-  { giftName: 'B坷垃', totalCoin: 9900 },
-  { giftName: '礼花', totalCoin: 28000 },
-  { giftName: '花式夸夸', totalCoin: 39000 },
-  { giftName: '天空之翼', totalCoin: 100000 },
-  { giftName: '摩天大楼', totalCoin: 450000 },
-  { giftName: '小电视飞船', totalCoin: 1245000 }
+  { giftId: 1, giftName: '粉丝团灯牌', totalFreeCoin: 200, num: 10, giftIconUrl: '//s1.hdslb.com/bfs/live/e051dfd4557678f8edcac4993ed00a0935cbd9cc.png' },
+  { giftId: 2, giftName: '可爱捏', totalCoin: 9900, giftIconUrl: '//s1.hdslb.com/bfs/live/6dab14826b531c731521345e00d6b56a6708a449.png' },
+  { giftId: 3, giftName: '花式夸夸', totalCoin: 29900, giftIconUrl: '//s1.hdslb.com/bfs/live/28186596880db45a7b843f17d6ebb70feeac06f9.png' },
+  { giftId: 4, giftName: '情书', totalCoin: 52000, num: 10, giftIconUrl: '//s1.hdslb.com/bfs/live/14dafbf217618f0931c08897e0b3eefc00d0da22.png' },
+  { giftId: 5, giftName: '极速超跑', totalCoin: 100000, giftIconUrl: '//s1.hdslb.com/bfs/live/27b9734d1a5f77ea6fc94957e3fcbeb55505c6b9.png' },
+  { giftId: 6, giftName: '为你摘星', totalCoin: 520000, giftIconUrl: '//s1.hdslb.com/bfs/live/5bd584b6fdfb03d66de56102e775582fb29ceab7.png' },
+  { giftId: 7, giftName: '次元之城', totalCoin: 1245000, giftIconUrl: '//s1.hdslb.com/bfs/live/cdae8136b1ee767609aeec688bca8124651d4d01.png' }
 ]
 
 const SC_PRICES = [
@@ -103,36 +130,39 @@ const SC_PRICES = [
 const MESSAGE_GENERATORS = [
   // 文字
   {
+    filterType: 'text',  // 取值和样式生成器中的消息类型设置相同
     weight: 20,
     value() {
       return {
         type: constants.MESSAGE_TYPE_TEXT,
         message: new chatModels.AddTextMsg({
           ...randGuardInfo(),
+          ...randMedalInfo(),
           authorName: randomChoose(NAMES),
           content: randomChoose(CONTENTS),
           isGiftDanmaku: randInt(1, 10) <= 1,
           authorLevel: randInt(1, 60),
           isNewbie: randInt(1, 10) <= 1,
           isMobileVerified: randInt(1, 10) <= 9,
-          medalLevel: randInt(0, 40),
+          translation: randInt(1, 10) <= 1 ? randomChoose(TRANSLATIONS) : '',
         })
       }
     }
   },
   // 表情
   {
+    filterType: 'emoticon',
     weight: 5,
     value() {
       return {
         type: constants.MESSAGE_TYPE_TEXT,
         message: new chatModels.AddTextMsg({
           ...randGuardInfo(),
+          ...randMedalInfo(),
           authorName: randomChoose(NAMES),
           authorLevel: randInt(1, 60),
           isNewbie: randInt(1, 10) <= 1,
           isMobileVerified: randInt(1, 10) <= 9,
-          medalLevel: randInt(0, 40),
           emoticon: randomChoose(EMOTICONS),
         })
       }
@@ -140,40 +170,51 @@ const MESSAGE_GENERATORS = [
   },
   // 礼物
   {
+    filterType: 'gift',
     weight: 1,
     value() {
       return {
         type: constants.MESSAGE_TYPE_GIFT,
         message: new chatModels.AddGiftMsg({
+          ...randMedalInfo(),
           ...randomChoose(GIFT_INFO_LIST),
           authorName: randomChoose(NAMES),
+          privilegeType: randInt(0, 3),
         })
       }
     }
   },
   // SC
   {
+    filterType: 'superChat',
     weight: 3,
     value() {
       return {
         type: constants.MESSAGE_TYPE_SUPER_CHAT,
         message: new chatModels.AddSuperChatMsg({
+          ...randMedalInfo(),
           authorName: randomChoose(NAMES),
           price: randomChoose(SC_PRICES),
           content: randomChoose(CONTENTS),
+          translation: randInt(1, 10) <= 1 ? randomChoose(TRANSLATIONS) : '',
+          privilegeType: randInt(0, 3),
         })
       }
     }
   },
   // 新舰长
   {
+    filterType: 'member',
     weight: 1,
     value() {
+      let privilegeType = randInt(1, 3)
       return {
         type: constants.MESSAGE_TYPE_MEMBER,
         message: new chatModels.AddMemberMsg({
+          ...randMedalInfo(),
           authorName: randomChoose(NAMES),
-          privilegeType: randInt(1, 3)
+          privilegeType: privilegeType,
+          total_coin: GUARD_LEVEL_TO_PRICE[privilegeType] * 1000,
         })
       }
     }
@@ -216,6 +257,12 @@ export default class ChatClientTest {
   constructor() {
     this.msgHandler = chat.getDefaultMsgHandler()
 
+    this.msgConfig = {
+      speed: null,
+      types: {},
+    }
+    this.msgRandomNodes = MESSAGE_GENERATORS
+
     this.timerId = null
   }
 
@@ -230,13 +277,36 @@ export default class ChatClientTest {
     }
   }
 
+  setMsgConfig(msgConfig) {
+    if (this.msgConfig === msgConfig) {
+      return
+    }
+    let oldMsgConfig = this.msgConfig
+
+    if (msgConfig.speed < 0.1) {
+      msgConfig.speed = 0.1
+    }
+    this.msgConfig = msgConfig
+
+    if (msgConfig.speed !== oldMsgConfig.speed && this.timerId) {
+      this.refreshTimer()
+    }
+    this.msgRandomNodes = MESSAGE_GENERATORS.filter(node => msgConfig.types[node.filterType])
+  }
+
   refreshTimer() {
-    // 模仿B站的消息间隔模式
     let sleepTime
-    if (randInt(0, 4) == 0) {
-      sleepTime = randInt(1000, 2000)
+    if (this.msgConfig.speed !== null) {
+      let avgTime = 1000 / this.msgConfig.speed
+      sleepTime = randInt(avgTime - 100, avgTime + 100)
+      sleepTime = Math.max(sleepTime, 0)
     } else {
-      sleepTime = randInt(0, 400)
+      // 模仿B站的消息间隔模式
+      if (randInt(0, 4) == 0) {
+        sleepTime = randInt(1000, 2000)
+      } else {
+        sleepTime = randInt(0, 400)
+      }
     }
     if (this.timerId) {
       window.clearTimeout(this.timerId)
@@ -247,10 +317,14 @@ export default class ChatClientTest {
   onTimeout() {
     this.refreshTimer()
 
-    let { type, message } = randomChoose(MESSAGE_GENERATORS)()
+    if (this.msgRandomNodes.length === 0) {
+      return
+    }
+    let { type, message } = randomChoose(this.msgRandomNodes)()
     switch (type) {
     case constants.MESSAGE_TYPE_TEXT:
       this.msgHandler.onAddText(message)
+      this.maybeTranslate(message)
       break
     case constants.MESSAGE_TYPE_GIFT:
       this.msgHandler.onAddGift(message)
@@ -260,7 +334,34 @@ export default class ChatClientTest {
       break
     case constants.MESSAGE_TYPE_SUPER_CHAT:
       this.msgHandler.onAddSuperChat(message)
+      this.maybeTranslate(message)
+      this.maybeDeleteSc(message)
       break
     }
+  }
+
+  maybeTranslate(message) {
+    if (message.translation || randInt(1, 4) <= 1) {
+      return
+    }
+    window.setTimeout(() => {
+      let translateMessage = new chatModels.UpdateTranslationMsg({
+        id: message.id,
+        translation: randomChoose(TRANSLATIONS),
+      })
+      this.msgHandler.onUpdateTranslation(translateMessage)
+    }, randInt(1000, 3000))
+  }
+
+  maybeDeleteSc(message) {
+    if (randInt(1, 5) <= 4) {
+      return
+    }
+    window.setTimeout(() => {
+      let deleteMessage = new chatModels.DelSuperChatMsg({
+        ids: [message.id],
+      })
+      this.msgHandler.onDelSuperChat(deleteMessage)
+    }, randInt(1000, 3000))
   }
 }

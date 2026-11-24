@@ -13,7 +13,7 @@ import tornado.websocket
 import yarl
 
 import api.base
-import blivedm.blivedm.clients.web as dm_web_cli
+import blivedm.clients.web as dm_web_cli
 import config
 import services.avatar
 import services.chat
@@ -74,6 +74,7 @@ def make_text_message_data(
     content_type_params: list = None,
     uid: str = '',
     medal_name: str = '',
+    is_mirror: bool = False,
 ):
     # 为了节省带宽用list而不是dict
     return [
@@ -113,6 +114,8 @@ def make_text_message_data(
         uid,
         # 17: medalName
         medal_name,
+        # 18: isMirror
+        1 if is_mirror else 0,
     ]
 
 
@@ -223,12 +226,13 @@ class ChatHandler(tornado.websocket.WebSocketHandler):
 
         self._refresh_receive_timeout_timer()
 
-    # 跨域测试用
     def check_origin(self, origin):
         cfg = config.get_config()
-        if cfg.debug:
-            return True
-        return super().check_origin(origin)
+        return (
+            cfg.debug  # 开发时前端localhost直连
+            or cfg.is_allowed_cors_origin(origin)
+            or super().check_origin(origin)  # 和Host相同
+        )
 
     @property
     def has_joined_room(self):
@@ -326,34 +330,45 @@ class ChatHandler(tornado.websocket.WebSocketHandler):
 
 
 class RoomInfoHandler(api.base.ApiHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._user_agent = ''
+        self._http_session: Optional[aiohttp.ClientSession] = None
+
     async def get(self):
         room_id = int(self.get_query_argument('roomId'))
         logger.info('client=%s getting room info, room=%d', self.request.remote_ip, room_id)
 
-        (room_id, owner_uid), (host_server_list, host_server_token), buvid = await asyncio.gather(
-            self._get_room_info(room_id),
-            self._get_server_host_list_and_token(room_id),
-            self._get_buvid()
-        )
+        self._user_agent = self.request.headers.get('User-Agent', '')
+        # 因为UA会变，所以不能用公共的session了
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as http_session:
+            self._http_session = http_session
 
-        # 缓存1分钟
-        self.set_header('Cache-Control', 'private, max-age=60')
-        self.write({
-            'roomId': room_id,
-            'ownerUid': owner_uid,
-            'hostServerList': host_server_list,
-            'hostServerToken': host_server_token,
-            # 虽然没什么用但还是加上比较保险
-            'buvid': buvid,
-        })
+            # 要先初始化buvid才能进行后续请求，不然会-352
+            buvid = await self._get_buvid()
+            (room_id, owner_uid), (host_server_list, host_server_token) = await asyncio.gather(
+                self._get_room_info(room_id),
+                self._get_server_host_list_and_token(room_id),
+            )
 
-    @staticmethod
-    async def _get_room_info(room_id) -> Tuple[int, int]:
+            # 缓存1分钟
+            self.set_header('Cache-Control', 'private, max-age=60')
+            self.write({
+                'roomId': room_id,
+                'ownerUid': owner_uid,
+                'hostServerList': host_server_list,
+                'hostServerToken': host_server_token,
+                # 虽然没什么用但还是加上比较保险
+                'buvid': buvid,
+            })
+
+    async def _get_room_info(self, room_id) -> Tuple[int, int]:
         try:
-            async with utils.request.http_session.get(
+            async with self._http_session.get(
                 dm_web_cli.ROOM_INIT_URL,
                 headers={
                     **utils.request.BILIBILI_COMMON_HEADERS,
+                    'User-Agent': self._user_agent,
                     'Origin': 'https://live.bilibili.com',
                     'Referer': f'https://live.bilibili.com/{room_id}'
                 },
@@ -374,21 +389,29 @@ class RoomInfoHandler(api.base.ApiHandler):
             logger.warning('room=%d _get_room_info failed: %s', room_id, data['message'])
             return room_id, 0
 
-        room_info = data['data']['room_info']
-        return room_info['room_id'], room_info['uid']
+        data = data['data']
+        return data['room_id'], data['uid']
 
     async def _get_server_host_list_and_token(self, room_id) -> Tuple[dict, Optional[str]]:
+        wbi_signer = dm_web_cli._get_wbi_signer(self._http_session)  # noqa
+        if wbi_signer.need_refresh_wbi_key:
+            await wbi_signer.refresh_wbi_key()
+            # 如果没刷新成功先用旧的key
+            if wbi_signer.wbi_key == '':
+                logger.warning('room %d _get_server_host_list failed: no wbi key', room_id)
+                return dm_web_cli.DEFAULT_DANMAKU_SERVER_LIST, None
+
         try:
-            async with utils.request.http_session.get(
+            async with self._http_session.get(
                 dm_web_cli.DANMAKU_SERVER_CONF_URL,
                 headers={
                     # token会对UA签名，要使用和客户端一样的UA
-                    'User-Agent': self.request.headers.get('User-Agent', '')
+                    'User-Agent': self._user_agent
                 },
-                params={
+                params=wbi_signer.add_wbi_sign({
                     'id': room_id,
                     'type': 0
-                }
+                })
             ) as res:
                 if res.status != 200:
                     logger.warning('room %d _get_server_host_list failed: %d %s', room_id,
@@ -400,6 +423,9 @@ class RoomInfoHandler(api.base.ApiHandler):
             return dm_web_cli.DEFAULT_DANMAKU_SERVER_LIST, None
 
         if data['code'] != 0:
+            if data['code'] == -352:
+                # wbi签名错误
+                wbi_signer.reset()
             logger.warning('room %d _get_server_host_list failed: %s', room_id, data['message'])
             return dm_web_cli.DEFAULT_DANMAKU_SERVER_LIST, None
 
@@ -418,15 +444,20 @@ class RoomInfoHandler(api.base.ApiHandler):
             return buvid
 
         try:
-            async with utils.request.http_session.get(dm_web_cli.BUVID_INIT_URL):
+            async with self._http_session.get(
+                dm_web_cli.BUVID_INIT_URL,
+                headers={
+                    # 要使用和后续请求一样的UA
+                    'User-Agent': self._user_agent
+                }
+            ):
                 pass
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
             pass
         return self._do_get_buvid()
 
-    @staticmethod
-    def _do_get_buvid():
-        cookies = utils.request.http_session.cookie_jar.filter_cookies(yarl.URL(dm_web_cli.BUVID_INIT_URL))
+    def _do_get_buvid(self):
+        cookies = self._http_session.cookie_jar.filter_cookies(yarl.URL(dm_web_cli.BUVID_INIT_URL))
         buvid_cookie = cookies.get('buvid3', None)
         if buvid_cookie is None:
             return ''

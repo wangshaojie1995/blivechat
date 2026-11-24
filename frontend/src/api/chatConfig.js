@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG = {
   maxNumber: 60,
 
   blockGiftDanmaku: true,
+  blockMirrorMessages: false,
   blockLevel: 0,
   blockNewbie: false,
   blockNotMobileVerified: false,
@@ -25,7 +26,9 @@ export const DEFAULT_CONFIG = {
   giftUsernamePronunciation: '',
   importPresetCss: false,
 
-  emoticons: [] // [{ keyword: '', url: '' }, ...]
+  emoticons: [], // [{ keyword: '', url: '' }, ...]
+
+  templateUrl: '',
 }
 
 export function deepCloneDefaultConfig() {

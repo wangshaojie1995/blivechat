@@ -100,19 +100,24 @@
 
           <el-tab-pane :label="$t('home.block')">
             <el-row :gutter="20">
-              <el-col :xs="24" :sm="8">
+              <el-col :xs="24" :sm="6">
                 <el-form-item :label="$t('home.giftDanmaku')">
                   <el-switch v-model="form.blockGiftDanmaku"></el-switch>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="8">
+              <el-col :xs="24" :sm="6">
+                <el-form-item :label="$t('home.mirrorMessage')">
+                  <el-switch v-model="form.blockMirrorMessages"></el-switch>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="6">
                 <el-tooltip :content="$t('home.unavailableWhenUsingAuthCode')">
                   <el-form-item :label="$t('home.informalUser')">
                     <el-switch v-model="form.blockNewbie"></el-switch>
                   </el-form-item>
                 </el-tooltip>
               </el-col>
-              <el-col :xs="24" :sm="8">
+              <el-col :xs="24" :sm="6">
                 <el-tooltip :content="$t('home.unavailableWhenUsingAuthCode')">
                   <el-form-item :label="$t('home.unverifiedUser')">
                     <el-switch v-model="form.blockNotMobileVerified"></el-switch>
@@ -130,7 +135,7 @@
               </el-col>
               <el-col :xs="24" :sm="12">
                 <el-form-item :label="$t('home.blockMedalLevel')">
-                  <el-slider v-model="form.blockMedalLevel" show-input :min="0" :max="40"></el-slider>
+                  <el-slider v-model="form.blockMedalLevel" show-input :min="0" :max="120"></el-slider>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -217,6 +222,10 @@
               <el-button type="primary" icon="el-icon-plus" @click="addEmoticon">{{$t('home.addEmoticon')}}</el-button>
             </p>
           </el-tab-pane>
+
+          <el-tab-pane :label="$t('home.template')" lazy>
+            <template-select v-model="form.templateUrl"></template-select>
+          </el-tab-pane>
         </el-tabs>
       </el-form>
     </p>
@@ -249,12 +258,14 @@
 import _ from 'lodash'
 import download from 'downloadjs'
 
+import TemplateSelect from './TemplateSelect'
 import { mergeConfig } from '@/utils'
 import * as mainApi from '@/api/main'
 import * as chatConfig from '@/api/chatConfig'
 
 export default {
   name: 'Home',
+  components: { TemplateSelect },
   data() {
     return {
       serverConfig: {
@@ -384,7 +395,8 @@ export default {
     getUnvalidatedRoomUrl(isTestRoom) {
       // 重要的字段放在前面，因为如果被截断就连接不了房间了
       let frontFields = {
-        roomKeyType: this.form.roomKeyType
+        roomKeyType: this.form.roomKeyType,
+        templateUrl: this.form.templateUrl,
       }
       let backFields = {
         lang: this.$i18n.locale,
